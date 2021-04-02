@@ -255,6 +255,7 @@ class Scan:
     error_reporting_on = False
     param_reflected = False
     __document_root = None
+    __server_suffix = None
     stable_content = None
 
     # Client side net stuff
@@ -1167,6 +1168,16 @@ class Scan:
                     abs_path = abs_path.replace(rm, "")
                     self.document_root = abs_path
 
+            if not self.server_suffix:
+
+                server_file_name = substr(res, "Failed opening '", "' for inclusion")
+                if not server_file_name:
+                    server_file_name = substr(res, "include(", "): failed to open")
+
+                if payload in server_file_name:
+                    server_file_name = server_file_name.replace(payload, "")
+                    self.server_suffix = server_file_name
+
         title = substr(res, "<title>", "</title>")
         if title and not self.site_title:
             self.site_title = title
@@ -1278,6 +1289,18 @@ class Scan:
 
         info(f"Document Root: {p}", bold=True)
         self.__document_root = p
+
+    @property
+    def server_suffix(self):
+        return self.__server_suffix
+
+    @server_suffix.setter
+    def server_suffix(self, p):
+        if self.__server_suffix:
+            return
+
+        info(f"Server appends Suffix: {p}", bold=True)
+        self.__server_suffix = p
 
     @property
     def filter_bypass(self):
