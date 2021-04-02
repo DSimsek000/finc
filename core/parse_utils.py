@@ -42,7 +42,7 @@ def is_int(s):
     try:
         int(s)
         return True
-    except ValueError:
+    except:
         return False
 
 
@@ -276,7 +276,7 @@ def parse_request(request_file) -> InputRequest:
     try:
         json_object = json.loads(data)
         options.json = json_object
-    except Exception as e:
+    except Exception:
 
         if data:
             for spl in data.split("&"):

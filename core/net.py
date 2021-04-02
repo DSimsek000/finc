@@ -4,7 +4,7 @@ import requests
 
 import mysql.connector
 
-ip_cache = "127.0.0.1"
+ip_cache = None
 
 
 def mysql_login(host, username, password, port):
@@ -51,7 +51,7 @@ def get_external_ip():
     global ip_cache
     if ip_cache is None:
         ip_cache = requests.get('https://api.ipify.org').text
-    return ip_cache
+    return ip_cache.strip()
 
 
 def silent_kill_http_server(url):

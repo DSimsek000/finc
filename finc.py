@@ -11,7 +11,7 @@ from os.path import expanduser
 from core.constants import MARKER
 from core.filter_bypass import set_level
 from core.log import set_global_verbose, err, info, success
-from core.misc import get_date_time, dump
+from core.misc import get_date_time
 from core.mode import Mode, print_all_mode_usage
 from core.models.req_input import InputRequest
 from core.parse_utils import parse_request, validate_marker, parse_get_url, str_to_dict, parse_socket_address, \
@@ -24,37 +24,46 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 
+def scan_end():
+    print(f"[*] scan ending @ {get_date_time()}")
+
+
+def scan_start():
+    print(f"[*] scan starting @ {get_date_time()}")
+
+
 # Parse -------------------------------------------------------------------------------- #
-parser = argparse.ArgumentParser(description='lfi_scanner')
-parser.add_argument('-u', '--url', type=str,
-                    help=f'Target URL (format: "http://www.domain.com/lfi.php?file={MARKER}" or "http://www.domain.com/?file=util/{MARKER}")')
-parser.add_argument('--data', type=str,
-                    help=f'Data string to be sent through POST (format: "key1={MARKER};key2=val2"))')
-parser.add_argument('--cookie', type=str,
-                    help=f'HTTP Cookie header value (format: "key1={MARKER};key2=val2"))')
-parser.add_argument('--header', type=str,
-                    help=f'HTTP extra headers (format: "header1={MARKER};header2=val2"))')
-parser.add_argument('--proxy', type=str,
-                    help='Use a proxy to connect to the target URL')
-parser.add_argument('-x', '--method', default="GET", type=str,
-                    help='Specify HTTP method')
-parser.add_argument('-v', '--verbose', help="Increase output verbosity",
+parser = argparse.ArgumentParser()
+parser.add_argument('-u', '--url', metavar="", type=str,
+                    help=f'target (format: "http://www.domain.com/lfi.php?file={MARKER}")')
+parser.add_argument('-d', '--data', metavar="", type=str,
+                    help=f'data string to be sent through POST (format: "d1={MARKER};d2=val2"))')
+parser.add_argument('-c', '--cookie', metavar="", type=str,
+                    help=f'cookies (format: "c1={MARKER};c2=val2"))')
+parser.add_argument('--header', metavar="", type=str,
+                    help=f'HTTP headers (format: "h1={MARKER};h2=val2"))')
+parser.add_argument('--proxy', metavar="", type=str,
+                    help='set proxy to connect to the target (format: ip:port)')
+parser.add_argument('-x', '--method', metavar="", default="GET", type=str,
+                    help='HTTP method to use')
+parser.add_argument('-v', '--verbose', help="increase output verbosity",
                     action="store_true")
-parser.add_argument('-p', '--param', help="Force select parameter which will be injected")
-parser.add_argument('-r', metavar="file", help="Parse from file")
-parser.add_argument('-a', '--address', metavar="IP:FORWARDED_PORT",
-                    help="Address where reverse shell will connect back to")
-parser.add_argument('-s', '--http', help="Port which will be used for serving http content")
-parser.add_argument('--batch', action='store_true', help="Fully automatic mode")
-parser.add_argument('--redirect', action='store_true', help="Follow redirects")
-parser.add_argument('-D', '--output', help="Output Folder (default cwd)")
-parser.add_argument('--module', nargs=argparse.REMAINDER, help="Attempt exploiting only specific module(s)",
+parser.add_argument('-p', '--param', metavar="", help="select parameter to inject")
+parser.add_argument('-r', '--request', metavar="", help="parse request from file")
+parser.add_argument('-a', '--address', metavar="",
+                    help="address where reverse shell will connect back to (format: ip:port)")
+parser.add_argument('-s', '--http', type=int, metavar="", help="port which will be used for serving http content")
+parser.add_argument('--batch', action='store_true', help="automatic mode")
+parser.add_argument('--redirect', action='store_true', help="follow redirects")
+parser.add_argument('-o', '--output', metavar="", help="output folder (default cwd)")
+parser.add_argument('--module', nargs=argparse.REMAINDER,
+                    help="exploit only specific module",
                     choices=list(Mode))
-parser.add_argument('--level', type=int, default=1, help="Filter Bypass level (1-3)")
+parser.add_argument('--level', metavar="", type=int, default=1, help="bypass level (1-3)")
 
 # Get args ------------------------------------------------------------------------------ #
 
-req_input = InputRequest()
+request = InputRequest()
 
 args = parser.parse_args()
 
@@ -66,6 +75,8 @@ output: str = args.output
 if output is None or not os.path.isabs(output):
     output = os.getcwd()
 
+batch: bool = args.batch
+
 # req related args
 input_url: str = args.url
 input_data: str = args.data
@@ -75,8 +86,8 @@ input_method: str = args.method
 input_proxy: str = args.proxy
 follow_redirects: bool = args.redirect
 
-parse_file: str = args.r
-param_force: str = args.param
+input_parse_file: str = args.request
+input_param_force: str = args.param
 input_local_address: str = args.address
 input_http_port: int = args.http
 
@@ -105,17 +116,17 @@ if not mode:
     mode = Mode.all
 
 # Http Request ------------------------------------------------------------------------ #
-if parse_file:
+if input_parse_file:
 
-    if parse_file[0] == "~":
-        parse_file = expanduser("~") + parse_file[1:]
+    if input_parse_file[0] == "~":
+        input_parse_file = expanduser("~") + input_parse_file[1:]
 
-    info(f"Parsing HTTP request from '{parse_file}' ")
+    info(f"Parsing HTTP request from '{input_parse_file}' ")
 
     try:
-        req_input = parse_request(parse_file)
+        request = parse_request(input_parse_file)
     except Exception as e:
-        err(f"There was an error parsing '{parse_file}':\n{str(e)}", exit=True)
+        err(f"There was an error parsing '{input_parse_file}':\n{str(e)}", exit=True)
 
     pass
 elif input_url:
@@ -132,45 +143,45 @@ elif input_url:
     if input_method is None:
         input_method = "GET"
 
-    req_input.method = input_method.upper()
+    request.method = input_method.upper()
 
     parsed_url = urllib.parse.urlparse(input_url)
 
-    req_input.host = parsed_url.netloc
+    request.host = parsed_url.netloc
     parsed_get_url = parse_get_url(input_url)
-    req_input.url_script_path = parsed_get_url[0]
+    request.url_script_path = parsed_get_url[0]
 
-    req_input.params = parsed_get_url[1]
+    request.params = parsed_get_url[1]
 
-    req_input.cookies = str_to_dict(input_cookies)
-    req_input.data = str_to_dict(input_data)
-    req_input.extra_headers = str_to_dict(input_headers)
+    request.cookies = str_to_dict(input_cookies)
+    request.data = str_to_dict(input_data)
+    request.extra_headers = str_to_dict(input_headers)
 else:
     err("No Url given", exit=True)
 # Get param ---------------------------------------------------------------------------- #
 
-if not is_valid_url(req_input.url_script_path):
+if not is_valid_url(request.url_script_path):
     err("Invalid Url given", exit=True)
 
-if param_force:
-    if param_force in req_input.params:
-        req_input.params[param_force] = MARKER
-    if param_force in req_input.data:
-        req_input.data[param_force] = MARKER
-    elif param_force in req_input.cookies:
-        req_input.cookies[param_force] = MARKER
-    elif param_force in req_input.extra_headers:
-        req_input.extra_headers[param_force] = MARKER
+if input_param_force:
+    if input_param_force in request.params:
+        request.params[input_param_force] = MARKER
+    elif input_param_force in request.data:
+        request.data[input_param_force] = MARKER
+    elif input_param_force in request.cookies:
+        request.cookies[input_param_force] = MARKER
+    elif input_param_force in request.extra_headers:
+        request.extra_headers[input_param_force] = MARKER
 
 # validate input
-amount = validate_marker(req_input)
+amount = validate_marker(request)
 
 quick_guess = False
 
 if amount != 1:
 
-    amount_possible_injections = len(req_input.params) + len(req_input.data) + len(
-        req_input.cookies)
+    amount_possible_injections = len(request.params) + len(request.data) + len(
+        request.cookies)
 
     if amount_possible_injections == 0:
         # guess GET params
@@ -178,12 +189,12 @@ if amount != 1:
         quick_guess = True
 
     elif amount_possible_injections == 1:
-        if req_input.params:
-            req_input.params[list(req_input.params.keys())[0]] = MARKER
-        if req_input.data:
-            req_input.data[list(req_input.data.keys())[0]] = MARKER
-        elif req_input.cookies:
-            req_input.cookies[list(req_input.cookies.keys())[0]] = MARKER
+        if request.params:
+            request.params[list(request.params.keys())[0]] = MARKER
+        if request.data:
+            request.data[list(request.data.keys())[0]] = MARKER
+        elif request.cookies:
+            request.cookies[list(request.cookies.keys())[0]] = MARKER
     else:
         err(f"I need exactly one marker <'{MARKER}'> to work with! Found {amount}", exit=True)
 
@@ -203,8 +214,8 @@ if __name__ == "__main__":
 
     # dump(req_input)
 
-    atexit.register(print, f"[*] scan ending @ {get_date_time()}")
-    print(f"[*] scan starting @ {get_date_time()}")
+    atexit.register(scan_end)
+    scan_start()
     signal.signal(signal.SIGINT, signal_handler)
 
     if quick_guess:
@@ -212,20 +223,20 @@ if __name__ == "__main__":
         info("No param given, try fuzzing common parameters")
 
         for param in core_get_common_param_names():
-            info(f"Try: '{param}'")
-            req_input.params = {param: MARKER}
-            scan = Scan(req_input, input_proxy, mode=mode, input_mode_params=input_module, address=address,
+            info(f"Check: '{param}'")
+            request.params = {param: MARKER}
+            scan = Scan(request, input_proxy, mode=mode, input_mode_params=input_module, address=address,
                         http_port=input_http_port,
-                        follow_redirects=follow_redirects, output_dir=output)
+                        follow_redirects=follow_redirects, output_dir=output, batch=batch)
             scan.quick_target_check(param_fuzzing=True)
 
             if scan.filter_bypass:
-                success(f"Param: '{param}' is injectable")
+                success(f"'{param}' is injectable")
                 scan.start()
                 break
 
     else:
-        scan = Scan(req_input, input_proxy, mode=mode, input_mode_params=input_module, address=address,
+        scan = Scan(request, input_proxy, mode=mode, input_mode_params=input_module, address=address,
                     http_port=input_http_port,
-                    follow_redirects=follow_redirects, output_dir=output)
+                    follow_redirects=follow_redirects, output_dir=output, batch=batch)
         scan.start()

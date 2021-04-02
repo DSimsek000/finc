@@ -44,7 +44,7 @@ class Mode(Enum):
         if self == self.session:
             desc = "Attempt RCE via PHP Sessions"
         if self == self.php_info:
-            desc = "Attempt RCE via phpinfo output: url (\"/info.php\")"
+            desc = "Attempt RCE via phpinfo output. Takes url as argument"
             args = 1
         if self == self.all:
             desc = "Try all modes (default)"
@@ -55,7 +55,7 @@ class Mode(Enum):
             desc = "Attempt RCE with expect://"
         if self == self.log:
             desc = f"Attempt RCE by poisoning log files: ftp({TARGET_DEFAULT_FTP_PORT}), ssh({TARGET_DEFAULT_SSH_PORT}), mysql({TARGET_DEFAULT_MYSQL_PORT}), pma(\"{TARGET_DEFAULT_PMA_PATH}\")"
-            args = 3
+            args = 4
             for_php = False
         if self == self.proc:
             desc = "Attempt RCE with proc environment"

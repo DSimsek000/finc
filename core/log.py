@@ -19,6 +19,10 @@ def success(log: str):
     print(f"{SUCCESS}{BOLD}[SUCCESS] {log}{NO_COLOR}")
 
 
+def is_verbose_mode():
+    return is_verbose
+
+
 def set_global_verbose(v):
     global is_verbose
     is_verbose = v

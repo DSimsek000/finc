@@ -142,7 +142,6 @@
             "/var/log/apache/error_log",
             "/var/log/apache2/error_log",
             "/var/log/apache/error.log",
-            "/var/log/apache2/error.log",
             "/var/log/error_log",
             "/var/log/error.log",
             "/var/www/logs/error_log",
