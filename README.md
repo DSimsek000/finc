@@ -8,42 +8,38 @@ Exploitation of LFI written in python3
 ## Setup:
 
 ```bash
-git clone https://github.com/DSimsek000/finc; cd finc
+git clone https://github.com/DSimsek000/finc
+cd finc
 # recommended setup with virtualenv
-python -m venv env; source env/bin/activate
+python -m venv env
+source env/bin/activate
 pip install -r requirements.txt
 ```
 
 ## Syntax:
 
 ```
-usage: finc [-h] [-u URL] [--data DATA] [--cookie COOKIE] [--header HEADER] [--proxy PROXY] [-x METHOD] [-v] [-p PARAM] [-r file]
-[-a IP:FORWARDED_PORT] [-s HTTP] [--batch] [--redirect] [-D OUTPUT] [--module ...] [--level LEVEL]
-
-lfi_scanner
+usage: finc [-h] [-u] [-d] [-c] [--header] [--proxy] [-x] [-v] [-vv] [-p] [-r] [-a] [-s] [--batch] [--redirect] [-o] [--module ...] [--level]
 
 optional arguments:
-    -h, --help            show this help message and exit
-    -u URL, --url URL     Target URL (format: "http://www.domain.com/lfi.php?file=FINC" or "http://www.domain.com/?file=util/FINC")
-    --data DATA           Data string to be sent through POST (format: "key1=FINC;key2=val2"))
-    --cookie COOKIE       HTTP Cookie header value (format: "key1=FINC;key2=val2"))
-    --header HEADER       HTTP extra headers (format: "header1=FINC;header2=val2"))
-    --proxy PROXY         Use a proxy to connect to the target URL
-    -x METHOD, --method METHOD
-    Specify HTTP method
-    -v, --verbose         Increase output verbosity
-    -p PARAM, --param PARAM
-    Force select parameter which will be injected
-    -r file               Parse from file
-    -a IP:FORWARDED_PORT, --address IP:FORWARDED_PORT
-    Address where reverse shell will connect back to
-    -s HTTP, --http HTTP  Port which will be used for serving http content
-    --batch               Fully automatic mode
-    --redirect            Follow redirects
-    -D OUTPUT, --output OUTPUT
-    Output Folder (default cwd)
-    --module ...          Attempt exploiting only specific module(s)
-    --level LEVEL         Filter Bypass level (1-3)
+    -h, --help       show this help message and exit
+    -u , --url       target (format: "http://www.domain.com/lfi.php?file=FINC")
+    -d , --data      data string to be sent through POST (format: "d1=FINC;d2=val2"))
+    -c , --cookie    cookies (format: "c1=FINC;c2=val2"))
+    --header         HTTP headers (format: "h1=FINC;h2=val2"))
+    --proxy          set proxy to connect to the target (format: ip:port)
+    -x , --method    HTTP method to use
+    -v, --verbose    increase output verbosity
+    -vv              debug
+    -p , --param     select parameter to inject
+    -r , --request   parse request from file
+    -a , --address   address where reverse shell will connect back to (format: ip:port)
+    -s , --http      port which will be used for serving http content
+    --batch          automatic mode
+    --redirect       follow redirects
+    -o , --output    output folder (default cwd)
+    --module ...     exploit only specific module
+    --level          bypass level (1-3)
 ```
 
 ## Modes
@@ -57,9 +53,9 @@ data                                    yes                     Exploit php data
 expect                                  yes                     Attempt RCE with expect://
 filter                                  yes                     Attempt including files with php://filter
 fuzz                                    no                      Attempt including files with filter-bypass
-phpinfo         1                       yes                     Attempt RCE via phpinfo output: url ("/info.php")
+phpinfo         1                       yes                     Attempt RCE via phpinfo output. Takes url as argument
 proc                                    no                      Attempt RCE with proc environment
-log             3                       no                      Attempt RCE by poisoning log files: ftp(22), ssh(21), pma("/phpmyadmin")
+log             4                       no                      Attempt RCE by poisoning log files: ftp(21), ssh(22), mysql(3306), pma("/phpmyadmin")
 input                                   yes                     Attempt RCE with php://input
 session                                 yes                     Attempt RCE via PHP Sessions
 ```
