@@ -13,6 +13,7 @@ BOLD = '\033[1m'
 UNDERLINE = '\033[4m'
 
 is_verbose = False
+is_debug = False
 
 
 def success(log: str):
@@ -28,9 +29,16 @@ def set_global_verbose(v):
     is_verbose = v
 
 
-def ask(msg: str):
-    res = None
+def is_debug_mode():
+    return is_debug
 
+
+def set_debug(v):
+    global is_debug
+    is_debug = v
+
+
+def ask(msg: str):
     try:
         res = input(f"{ASK}{msg}{NO_COLOR}")
     except EOFError:
@@ -42,7 +50,7 @@ def ask(msg: str):
 
 
 def verbose(log: str):
-    if is_verbose:
+    if is_verbose or is_debug:
         print(f"{VERBOSE}[DEBUG] {log}{NO_COLOR}")
 
 

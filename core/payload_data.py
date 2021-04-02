@@ -81,6 +81,13 @@ def core_get_common_param_names() -> list:
     return res
 
 
+def core_get_common_file_names():
+    with open(CORE_JSON) as json_file:
+        json_data = json.load(json_file)
+        res = json_data['filenames']
+    return res
+
+
 def core_get_common_doc_roots():
     with open(CORE_JSON) as json_file:
         json_data = json.load(json_file)

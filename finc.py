@@ -10,7 +10,7 @@ from os.path import expanduser
 
 from core.constants import MARKER
 from core.filter_bypass import set_level
-from core.log import set_global_verbose, err, info, success
+from core.log import set_global_verbose, err, info, success, set_debug
 from core.misc import get_date_time
 from core.mode import Mode, print_all_mode_usage
 from core.models.req_input import InputRequest
@@ -48,6 +48,8 @@ parser.add_argument('-x', '--method', metavar="", default="GET", type=str,
                     help='HTTP method to use')
 parser.add_argument('-v', '--verbose', help="increase output verbosity",
                     action="store_true")
+parser.add_argument('-vv', help="debug",
+                    action="store_true")
 parser.add_argument('-p', '--param', metavar="", help="select parameter to inject")
 parser.add_argument('-r', '--request', metavar="", help="parse request from file")
 parser.add_argument('-a', '--address', metavar="",
@@ -68,6 +70,7 @@ request = InputRequest()
 args = parser.parse_args()
 
 set_global_verbose(args.verbose)
+set_debug(args.vv)
 set_level(args.level)
 
 output: str = args.output
