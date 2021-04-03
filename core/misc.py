@@ -13,7 +13,7 @@ def checkForErrorLogs(self, response):
     return False
 
 
-def dict_inject_marker(dictionary_orig: dict, replace):
+def dict_replace_marker(dictionary_orig: dict, replace):
     copy_dict = dictionary_orig.copy()
 
     for k, v in copy_dict.items():

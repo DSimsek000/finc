@@ -54,7 +54,8 @@ parser.add_argument('-p', '--param', metavar="", help="select parameter to injec
 parser.add_argument('-r', '--request', metavar="", help="parse request from file")
 parser.add_argument('-a', '--address', metavar="",
                     help="address where reverse shell will connect back to (format: ip:port)")
-parser.add_argument('-s', '--http', type=int, metavar="", help="port which will be used for serving http content")
+parser.add_argument('-s', '--http', type=int, metavar="",
+                    help="port which will be used for serving http content, needs to be port forwarded")
 parser.add_argument('--batch', action='store_true', help="automatic mode")
 parser.add_argument('--redirect', action='store_true', help="follow redirects")
 parser.add_argument('-o', '--output', metavar="", help="output folder (default cwd)")

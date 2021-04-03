@@ -1,6 +1,8 @@
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+from core.log import success, err
+
 STATIC_CONTENT = ""
 
 
@@ -16,7 +18,7 @@ def getStaticContent():
 class CustomHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
-        print("Incoming Request from " + self.client_address[0])
+        success("Incoming Request from " + self.client_address[0])
         self._set_response()
         self.wfile.write(getStaticContent())
         self.wfile.flush()
@@ -33,8 +35,12 @@ class CustomHandler(BaseHTTPRequestHandler):
 def run_http_server(port, static_content):
     global STATIC_CONTENT
     STATIC_CONTENT = static_content
-    server = StoppableHTTPServer(('localhost', port), CustomHandler)
-    thread = threading.Thread(target=server.serve_forever)
-    thread.daemon = True
-    thread.start()
-    thread.join()
+
+    try:
+        server = StoppableHTTPServer(("127.0.0.1", port), CustomHandler)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.daemon = True
+        thread.start()
+        thread.join()
+    except OSError as e:
+        err(f"Error while starting HTTP server: {str(e)}")
