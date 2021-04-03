@@ -1,3 +1,5 @@
+from core.misc import double_url_encode, url_encode
+
 LEVEL = 1
 CACHE_FILTER = None
 MAX_DEPTH = 10
@@ -59,6 +61,10 @@ def calc_filters():
                 res.append(
                     FilterByPass(replacers={"/": "%c0%af", ".": "%252e"}, prefix="../" * level, suffix=suffix))
 
+                # all
+                res.append(
+                    FilterByPass(prefix="../" * level, suffix=suffix, func=url_encode))
+
                 # unicode
                 res.append(FilterByPass(replacers={"/": "%u2215"}, prefix="../" * level, suffix=suffix))
                 res.append(
@@ -79,12 +85,13 @@ def get_bypass_possibilities():
 class FilterByPass:
     found_bypass = False
 
-    def __init__(self, replacers=None, prefix="", suffix=""):
+    def __init__(self, replacers=None, prefix="", suffix="", func=None):
         if replacers is None:
             replacers = {}
         self.replacers = replacers
         self.prefix = prefix
         self.suffix = suffix
+        self.func = func
 
     """
     call if current bypass worked
@@ -96,6 +103,9 @@ class FilterByPass:
 
         for (k, v) in self.replacers.items():
             path_to_include = path_to_include.replace(k, v)
+
+        if self.func is not None:
+            path_to_include = self.func(path_to_include)
 
         return path_to_include
 
@@ -110,6 +120,10 @@ class FilterByPass:
 
         for (k, v) in self.replacers.items():
             res = res + f"Replace '{k}' with '{v}'; "
+
+        if self.func is not None:
+            if self.func == url_encode:
+                res = res + f"double url-encode all; "
 
         if res.endswith("; "):
             res = res[:-2]

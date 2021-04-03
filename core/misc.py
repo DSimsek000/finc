@@ -2,6 +2,7 @@ from datetime import datetime
 
 from core.constants import MARKER, ERROR_INCLUDE_LOG
 from core.io import get_resource
+import urllib.parse
 
 
 def checkForErrorLogs(self, response):
@@ -24,6 +25,14 @@ def dict_inject_marker(dictionary_orig: dict, replace):
 def dump(obj):
     for attr in vars(obj):
         print("obj.%s = %r" % (attr, getattr(obj, attr)))
+
+
+def url_encode(text: str):
+    return urllib.parse.quote(text, safe='').replace(".", "%2e")
+
+
+def double_url_encode(text: str):
+    return url_encode(url_encode(text))
 
 
 def get_date_time():

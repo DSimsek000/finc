@@ -580,7 +580,7 @@ class Scan:
 
             while not auto_fuzz:
 
-                file_name = ask("[q=Quit][a=Auto-Fuzz] Enter File: ")
+                file_name = self.user_input_file()
 
                 if file_name == "":
                     continue
@@ -629,7 +629,7 @@ class Scan:
         auto_fuzz = self.batch
 
         while not auto_fuzz:
-            file_name = ask("[q=Quit][a=Auto-Fuzz] Enter File: ")
+            file_name = self.user_input_file()
 
             if file_name == "":
                 continue
@@ -667,6 +667,15 @@ class Scan:
                     if not included:
                         verbose(f"Failed including <'{file}'>")
                         pass
+
+    def user_input_file(self):
+        res = ask("[q=Quit][a=Auto-Fuzz] Enter File: ")
+
+        if self.server_append_suffix is not None and res.endswith(self.server_append_suffix):
+            res = res[: -1 * len(self.server_append_suffix)]
+            info("Removed " + self.server_append_suffix)
+
+        return res
 
     def start_check_for_rfi(self):
 
@@ -1190,7 +1199,7 @@ class Scan:
                     server_file_name = substr(res, "include(", "): failed to open")
 
                 if payload in server_file_name:
-                    server_file_name = server_file_name.replace(payload, "")
+                    server_file_name = server_file_name.split(payload)[1]
                     self.server_append_suffix = server_file_name
 
         title = substr(res, "<title>", "</title>")
