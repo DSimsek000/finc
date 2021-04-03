@@ -688,7 +688,7 @@ class Scan:
 
         is_success = False
 
-        res = self.send_payload(payload=STABLE_URL_CONTENT).text
+        res = self.send_payload(payload=STABLE_URL).text
 
         if STABLE_URL_CONTENT in res:
             is_success = True
@@ -1285,7 +1285,7 @@ class Scan:
             if included:
                 break
 
-        if not self.filter_bypass and not param_fuzzing and not self.batch and not self.mode == Mode.filter:
+        if not self.filter_bypass and not param_fuzzing and not self.batch and not self.mode == Mode.filter and not self.mode == Mode.all:
             y = ask("No bypass found, move on? [Y][n]: ")
             if y != "" and y != "Y" and y != "y":
                 sys.exit(0)
